@@ -1,18 +1,39 @@
 from typing import List
 from dotenv import load_dotenv
-load_dotenv()
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import smtplib
 import os
 import google.generativeai as genai
 from email.mime.text import MIMEText
 
-# === 1. Load Gemini API key securely ===
+# === Load environment variables ===
+load_dotenv()
+
+# === Gemini API key ===
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "YOUR_FALLBACK_API_KEY")
 genai.configure(api_key=GEMINI_API_KEY)
 
-# === 2. Generate email body ===
+# === FastAPI App ===
+app = FastAPI()
+
+# === Add CORS middleware to allow frontend requests ===
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # You can replace "*" with your frontend URL for production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# === Request model ===
+class EmailRequest(BaseModel):
+    subject: str
+    recipients: List[str]
+    prompt: str = ""
+
+# === Generate email content using Gemini ===
 def generate_email_content(subject: str, prompt: str = "") -> str:
     try:
         model = genai.GenerativeModel("gemini-2.0-flash")
@@ -27,16 +48,7 @@ def generate_email_content(subject: str, prompt: str = "") -> str:
     except Exception as e:
         return f"LLM Error: {str(e)}"
 
-# === 3. FastAPI app ===
-app = FastAPI()
-
-# === 4. Request Model ===
-class EmailRequest(BaseModel):
-    subject: str
-    recipients: List[str]
-    prompt: str = ""
-
-# === 5. Send email to multiple recipients ===
+# === Endpoint to send email ===
 @app.post("/send_email/")
 async def send_email(data: EmailRequest):
     email_body = generate_email_content(data.subject, data.prompt)
