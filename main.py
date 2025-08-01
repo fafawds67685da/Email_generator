@@ -1,3 +1,4 @@
+from typing import List
 from dotenv import load_dotenv
 load_dotenv()
 from fastapi import FastAPI
@@ -11,49 +12,52 @@ from email.mime.text import MIMEText
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "YOUR_FALLBACK_API_KEY")
 genai.configure(api_key=GEMINI_API_KEY)
 
-# === 2. Define the function to generate email body using Gemini ===
-def generate_email_content(subject: str, recipient: str) -> str:
+# === 2. Generate email body ===
+def generate_email_content(subject: str, prompt: str = "") -> str:
     try:
         model = genai.GenerativeModel("gemini-2.0-flash")
-        # Generate a prompt specifically requesting both the subject and body
-        prompt = (
-            f"Write a professional email to {recipient} with the subject '{subject}'. "
-            "The email should be polite, formal, and clearly communicate the main points related to the subject. "
-            "It should include a greeting, a concise message, and a formal closing. with my name as Dev Goyal nothing else at the end"
-        )
+        if not prompt:
+            prompt = (
+                f"Write a professional email with the subject '{subject}'. "
+                "The email should be polite, formal, and clearly communicate the main points related to the subject. "
+                "It should include a greeting, a concise message, and a formal closing with my name as Dev Goyal."
+            )
         response = model.generate_content(prompt)
         return response.text
     except Exception as e:
         return f"LLM Error: {str(e)}"
 
-# === 3. Define FastAPI app ===
+# === 3. FastAPI app ===
 app = FastAPI()
 
 # === 4. Request Model ===
 class EmailRequest(BaseModel):
     subject: str
-    recipient: str
+    recipients: List[str]
+    prompt: str = ""
 
-# === 5. Endpoint to send email ===
+# === 5. Send email to multiple recipients ===
 @app.post("/send_email/")
 async def send_email(data: EmailRequest):
-    # Generate the full email content using the subject and recipient
-    email_body = generate_email_content(data.subject, data.recipient)
+    email_body = generate_email_content(data.subject, data.prompt)
 
-    # Compose the email
-    msg = MIMEText(email_body)
-    msg["Subject"] = data.subject
-    msg["From"] = os.getenv("EMAIL_ADDRESS", "your_email@gmail.com")
-    msg["To"] = data.recipient
+    sender_email = os.getenv("EMAIL_ADDRESS", "your_email@gmail.com")
+    app_password = os.getenv("APP_PASSWORD")
 
-    # Send the email via Gmail SMTP (You can update this for other providers)
     try:
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
-            smtp.login(os.getenv("EMAIL_ADDRESS"), os.getenv("APP_PASSWORD"))
-            smtp.send_message(msg)
+            smtp.login(sender_email, app_password)
+            for recipient in data.recipients:
+                msg = MIMEText(email_body)
+                msg["Subject"] = data.subject
+                msg["From"] = sender_email
+                msg["To"] = recipient
+                smtp.send_message(msg)
+
         return {
-            "status": "✅ Email sent successfully",
-            "email_body": email_body  # Include the full email content sent to the recipient
+            "status": "✅ Email sent to all recipients successfully",
+            "email_body": email_body,
+            "recipients": data.recipients
         }
     except Exception as e:
         return {"error": str(e)}
