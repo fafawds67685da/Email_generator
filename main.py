@@ -2,20 +2,25 @@ from dotenv import load_dotenv
 load_dotenv()
 from fastapi import FastAPI
 from pydantic import BaseModel
-from typing import Optional
-from email.mime.text import MIMEText
 import smtplib
 import os
 import google.generativeai as genai
+from email.mime.text import MIMEText
 
 # === 1. Load Gemini API key securely ===
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "YOUR_FALLBACK_API_KEY")
 genai.configure(api_key=GEMINI_API_KEY)
 
 # === 2. Define the function to generate email body using Gemini ===
-def generate_email_content(prompt: str) -> str:
+def generate_email_content(subject: str, recipient: str) -> str:
     try:
-        model = genai.GenerativeModel("gemini-pro")
+        model = genai.GenerativeModel("gemini-2.0-flash")
+        # Generate a prompt specifically requesting both the subject and body
+        prompt = (
+            f"Write a professional email to {recipient} with the subject '{subject}'. "
+            "The email should be polite, formal, and clearly communicate the main points related to the subject. "
+            "It should include a greeting, a concise message, and a formal closing. with my name as Dev Goyal nothing else at the end"
+        )
         response = model.generate_content(prompt)
         return response.text
     except Exception as e:
@@ -28,21 +33,15 @@ app = FastAPI()
 class EmailRequest(BaseModel):
     subject: str
     recipient: str
-    message: Optional[str] = None  # optional if generating via LLM
 
 # === 5. Endpoint to send email ===
 @app.post("/send_email/")
 async def send_email(data: EmailRequest):
-    # Generate prompt for LLM if message not provided
-    if not data.message:
-        prompt = (
-            f"Write a professional email to {data.recipient} with the subject '{data.subject}'. "
-            "The email should be clear, concise, polite, and end with a formal closing."
-        )
-        data.message = generate_email_content(prompt)
+    # Generate the full email content using the subject and recipient
+    email_body = generate_email_content(data.subject, data.recipient)
 
     # Compose the email
-    msg = MIMEText(data.message)
+    msg = MIMEText(email_body)
     msg["Subject"] = data.subject
     msg["From"] = os.getenv("EMAIL_ADDRESS", "your_email@gmail.com")
     msg["To"] = data.recipient
@@ -54,7 +53,7 @@ async def send_email(data: EmailRequest):
             smtp.send_message(msg)
         return {
             "status": "✅ Email sent successfully",
-            "llm_output": data.message
+            "email_body": email_body  # Include the full email content sent to the recipient
         }
     except Exception as e:
         return {"error": str(e)}
